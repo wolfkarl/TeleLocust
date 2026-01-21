@@ -4,3 +4,5 @@ services:
   app:
     build: .
     container_name: telelocust
+    ports:
+      - "5123:5123"

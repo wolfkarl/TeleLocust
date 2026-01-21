@@ -1,4 +1,33 @@
 import logging
+"""
+Telelocust - Flask-based load testing orchestration application.
+This module provides a REST API for managing and executing Locust load tests.
+It allows clients to start load testing runs, monitor their status, and download results.
+
+Configuration:
+    HTTP_PORT (int): Port on which the Flask application runs (5123)
+    SUT (str): System Under Test URL (http://localhost:5123)
+    DATA_PATH (str): Directory path for storing test data and results (./data/)
+Key Components:
+    - /runs/start (POST): Initiates a new load test with specified parameters
+    - /runs/<token> (GET): Retrieves the status and results of a load test run
+    - /runs/<token>/download (GET): Downloads test results as a ZIP file
+    - / (GET): Health check endpoint
+    - /up (GET): Simple counter endpoint for monitoring
+The application manages:
+    - runs: Dictionary tracking the status of each load test execution
+    - processes: Dictionary maintaining subprocess references for active tests
+    - parameters: Configuration parameters for load tests (users, spawn rate, duration, etc.)
+Locustfile handling:
+    - Reads locustfile.py as base64-encoded data
+    - Allows clients to provide custom locustfiles via JSON payload
+    - Decodes and writes locustfiles to disk before execution
+Test execution:
+    - Spawns Locust subprocesses with CLI parameters
+    - Generates CSV, JSON, and log outputs for each test run
+    - Provides real-time status monitoring and result retrieval
+"""
+
 import time
 import json
 import os
@@ -10,7 +39,7 @@ import io
 from flask import Flask
 from flask import request
 
-HTTP_PORT = 5123
+HTTP_PORT = int(os.environ.get('TELELOCUST_HTTP_PORT', 5123))
 SUT = "http://localhost:5123"
 DATA_PATH = "./data/"
 
@@ -132,4 +161,4 @@ def data_dir(token):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=HTTP_PORT)
+    app.run(debug=True, host='0.0.0.0', port=HTTP_PORT)
