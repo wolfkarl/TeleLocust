@@ -6,14 +6,12 @@ It allows clients to start load testing runs, monitor their status, and download
 
 Configuration:
     HTTP_PORT (int): Port on which the Flask application runs (5123)
-    SUT (str): System Under Test URL (http://localhost:5123)
     DATA_PATH (str): Directory path for storing test data and results (./data/)
 Key Components:
     - /runs/start (POST): Initiates a new load test with specified parameters
     - /runs/<token> (GET): Retrieves the status and results of a load test run
     - /runs/<token>/download (GET): Downloads test results as a ZIP file
     - / (GET): Health check endpoint
-    - /up (GET): Simple counter endpoint for monitoring
 The application manages:
     - runs: Dictionary tracking the status of each load test execution
     - processes: Dictionary maintaining subprocess references for active tests
@@ -32,27 +30,35 @@ import time
 import json
 import os
 import subprocess
-from flask import send_file
 import zipfile
 import io
+import base64
+import requests
 
 from flask import Flask
 from flask import request
+from flask import send_file
+
 
 HTTP_PORT = int(os.environ.get('TELELOCUST_HTTP_PORT', 5123))
-SUT = "http://localhost:5123"
+# SUT = "http://localhost:5123"
 DATA_PATH = "./data/"
 
-logging.basicConfig(level=logging.DEBUG)
+log_level = os.environ.get('TELELOCUST_LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
 
 def read_locustfile_as_base64(filepath='locustfile.py'):
     with open(filepath, 'rb') as f:
-        return __import__('base64').b64encode(f.read()).decode('utf-8') 
+        return base64.b64encode(f.read()).decode('utf-8') 
     
+def read_locustfile_url_as_base64(url):
+    response = requests.get(url)
+    response.raise_for_status()
+    return base64.b64encode(response.content).decode('utf-8')
 
 parameters = {
-    'host': SUT,
+    'host': None,
     'users': 10,
     'spawn_rate': 2,
     'run_time': '5s',
@@ -61,7 +67,7 @@ parameters = {
 
 
 app = Flask(__name__)
-counter = 0
+
 runs = {}
 processes = {}
 
@@ -76,6 +82,11 @@ def start():
     data = request.get_json() or {}
     parameters.update(data)
 
+    if not parameters['host']:
+        return {'error': 'host parameter is required'}, 400 
+
+    logger.info(f"Starting new run with parameters: {parameters}")
+
     token = str(time.time())
     runs[token] = {'status': 'started'}
     print(f"Starting run {token}")
@@ -84,8 +95,8 @@ def start():
     with open(data_dir(token) + '/locustfile.py', 'wb') as f:
         f.write(__import__('base64').b64decode(parameters['locustfile_base64'].encode('utf-8')))    
 
-    processes[token] = subprocess.Popen(
-        [
+
+    locust_arguments = [
             'locust',
             '-f', data_dir(token) + '/locustfile.py',
             '--headless',
@@ -97,7 +108,12 @@ def start():
             '--logfile', f"{data_dir(token)}/locust.log",
             '--json-file', f"{data_dir(token)}/result",
             # '--json'
-        ],
+        ]
+    
+    logger.info(f"Locust command: {' '.join(locust_arguments)}")
+
+    processes[token] = subprocess.Popen(
+        locust_arguments,
         # stdout=subprocess.PIPE
         )
     return {'token': token}, 201, {'Location': f'/runs/{token}'}
@@ -147,14 +163,9 @@ def download(token):
         download_name=f'run_{token}.zip'
     )
 
-
-@app.route('/up')
-def up():
-    global counter
-    counter += 1
-    print(counter)
-    return {"counter": counter}
-
+@app.route('/healthz', methods=['GET'])
+def healthz():
+    return {'status': 'healthy'}
 
 def data_dir(token):
     return f"{DATA_PATH}/{token}"
